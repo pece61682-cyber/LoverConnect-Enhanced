@@ -46,6 +46,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".EmergencyUnlockActivity"
+            android:exported="false"
+            android:theme="@style/Theme.LoverConnect"
+            android:excludeFromRecents="true" />
+
         <service
             android:name=".McpService"
             android:enabled="true"
@@ -142,7 +148,7 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
-       
+
     </application>
 
 </manifest>

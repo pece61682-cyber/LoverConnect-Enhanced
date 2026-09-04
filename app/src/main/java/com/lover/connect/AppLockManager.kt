@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import java.security.MessageDigest
 import java.time.LocalTime
 
 object AppLockManager {
@@ -13,21 +14,29 @@ object AppLockManager {
     private const val KEY_FOCUS_PACKAGES = "focus_rikka_packages"
     private const val KEY_REDIRECT_PACKAGES = "redirect_rikka_packages"
     private const val KEY_REDIRECT_WINDOW = "redirect_rikka_window"
+    private const val KEY_USER_DENYLIST = "user_denylist"
+    private const val KEY_EMERGENCY_PIN_HASH = "emergency_pin_sha256"
     const val RIKKA_PACKAGE = "me.rerere.rikkahub"
 
+    // 内置保护名单：手机基础服务、短信、电话、通讯录、系统组件等永远不允许上锁。
     private val exactDenyList = setOf(
         "com.lover.connect", RIKKA_PACKAGE, "com.android.settings", "com.android.systemui",
         "com.android.permissioncontroller", "com.google.android.permissioncontroller",
         "com.android.packageinstaller", "com.google.android.packageinstaller",
-        "com.android.phone", "com.google.android.dialer", "com.android.vending",
+        "com.android.phone", "com.google.android.dialer", "com.android.dialer",
+        "com.android.server.telecom", "com.android.incallui", "com.android.vending",
         "com.google.android.gms", "com.google.android.apps.maps",
         "com.google.android.apps.healthdata", "com.google.android.apps.walletnfcrel",
-        "com.tailscale.ipn"
+        "com.android.mms", "com.google.android.apps.messaging",
+        "com.samsung.android.messaging", "com.android.contacts",
+        "com.google.android.contacts", "com.samsung.android.contacts",
+        "com.samsung.android.dialer", "com.tailscale.ipn"
     )
 
     private val deniedFragments = listOf(
         "launcher", "settings", "systemui", "permissioncontroller", "packageinstaller",
-        "dialer", "phone", "telecom", "wallet", "payment", "alipay", "tenpay",
+        "dialer", "phone", "telecom", "incall", "mms", "messaging", "message",
+        "contacts", "wallet", "payment", "alipay", "tenpay",
         "maps", "navigation", "health", "medical", "authenticator", "password",
         "vpn", "tailscale"
     )
@@ -45,6 +54,56 @@ object AppLockManager {
         return normalized in exactDenyList || deniedFragments.any(normalized::contains)
     }
 
+    // ── 用户自定义白名单 ─────────────────────────────
+    fun getUserDenylist(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_USER_DENYLIST, emptySet())?.toSet() ?: emptySet()
+
+    fun isUserDenied(context: Context, packageName: String): Boolean =
+        packageName.trim() in getUserDenylist(context)
+
+    fun addToUserDenylist(context: Context, packageName: String): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty() || isPermanentlyDenied(pkg)) return false
+        val updated = getUserDenylist(context).toMutableSet().apply { add(pkg) }
+        prefs(context).edit().putStringSet(KEY_USER_DENYLIST, updated).apply()
+        return true
+    }
+
+    fun removeFromUserDenylist(context: Context, packageName: String) {
+        val updated = getUserDenylist(context).toMutableSet().apply { remove(packageName.trim()) }
+        prefs(context).edit().putStringSet(KEY_USER_DENYLIST, updated).apply()
+    }
+
+    // ── 紧急解锁密码（只存 SHA-256 哈希，不存明文） ──
+    fun hasEmergencyPin(context: Context): Boolean =
+        !prefs(context).getString(KEY_EMERGENCY_PIN_HASH, null).isNullOrBlank()
+
+    fun setEmergencyPin(context: Context, pin: String): Boolean {
+        val trimmed = pin.trim()
+        if (trimmed.length < 4) return false
+        val hash = sha256(trimmed)
+        prefs(context).edit().putString(KEY_EMERGENCY_PIN_HASH, hash).apply()
+        return true
+    }
+
+    fun verifyEmergencyPin(context: Context, pin: String): Boolean {
+        val stored = prefs(context).getString(KEY_EMERGENCY_PIN_HASH, null) ?: return false
+        if (stored.isBlank()) return false
+        return constantTimeEquals(stored, sha256(pin.trim()))
+    }
+
+    private fun sha256(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun constantTimeEquals(a: String, b: String): Boolean {
+        if (a.length != b.length) return false
+        var diff = 0
+        for (i in a.indices) diff = diff or (a[i].code xor b[i].code)
+        return diff == 0
+    }
+
     fun lock(
         context: Context,
         packageName: String,
@@ -54,8 +113,8 @@ object AppLockManager {
     ): Result<Set<String>> {
         val pkg = packageName.trim()
         if (pkg.isEmpty()) return Result.failure(IllegalArgumentException("Package name cannot be empty"))
-        if (isPermanentlyDenied(pkg)) {
-            return Result.failure(IllegalArgumentException("This app is permanently protected from locking"))
+        if (isPermanentlyDenied(pkg) || isUserDenied(context, pkg)) {
+            return Result.failure(IllegalArgumentException("This app is in the whitelist and cannot be locked"))
         }
         if (durationMinutes !in 0..10080) {
             return Result.failure(IllegalArgumentException("duration_minutes must be between 0 and 10080"))

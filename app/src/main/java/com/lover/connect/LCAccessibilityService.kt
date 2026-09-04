@@ -183,9 +183,10 @@ class LCAccessibilityService : AccessibilityService() {
         val emergency = Button(this).apply {
             text = "Emergency unlock all"
             setOnClickListener {
-                AppLockManager.clearAll(this@LCAccessibilityService)
                 removeLockOverlay()
-                performGlobalAction(GLOBAL_ACTION_HOME)
+                val intent = Intent(this@LCAccessibilityService, EmergencyUnlockActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
             }
         }
         root.addView(title)
@@ -237,10 +238,10 @@ class LCAccessibilityService : AccessibilityService() {
                 NotificationChannel(channelId, "App lock", NotificationManager.IMPORTANCE_HIGH),
             )
         }
-        val pending = PendingIntent.getBroadcast(
+        val pending = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, UnlockAllReceiver::class.java),
+            Intent(this, EmergencyUnlockActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

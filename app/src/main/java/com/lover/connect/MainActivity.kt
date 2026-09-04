@@ -133,6 +133,12 @@ fun MainScreen() {
     var browserAccess by remember { mutableStateOf(McpServiceController.isBrowserAccessEnabled(context)) }
     val localMcpEndpoint = remember { McpLocalSecurity.endpoint(context) }
 
+    var emergencyPin by remember { mutableStateOf("") }
+    var pinMessage by remember { mutableStateOf("") }
+    var denylist by remember { mutableStateOf(AppLockManager.getUserDenylist(context)) }
+    var newDenyPkg by remember { mutableStateOf("") }
+    var denylistMessage by remember { mutableStateOf("") }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -338,6 +344,81 @@ fun MainScreen() {
             context.startActivity(intent)
         }, modifier = Modifier.fillMaxWidth()) {
             Text("通知使用权（音乐感知必需）")
+        }
+
+        HorizontalDivider()
+
+        // ===== 应用锁 =====
+        Text("应用锁", fontSize = 18.sp)
+
+        Text("紧急解锁密码", fontSize = 14.sp)
+        Text("被锁应用只有输入此密码才能一键解除全部应用锁。留空保存则不修改。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = emergencyPin,
+            onValueChange = { emergencyPin = it },
+            label = { Text("紧急解锁密码（至少4位）") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Button(onClick = {
+            val pin = emergencyPin.trim()
+            if (pin.length < 4) {
+                pinMessage = "密码至少 4 位"
+            } else if (AppLockManager.setEmergencyPin(context, pin)) {
+                emergencyPin = ""
+                pinMessage = "紧急解锁密码已设置"
+            } else {
+                pinMessage = "设置失败"
+            }
+        }) {
+            Text("保存密码")
+        }
+        if (pinMessage.isNotEmpty()) {
+            Text(pinMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text("应用锁白名单", fontSize = 14.sp)
+        Text("白名单里的应用不会被上锁。可手动添加包名（如 com.tencent.mm）。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = newDenyPkg,
+            onValueChange = { newDenyPkg = it },
+            label = { Text("应用包名（如 com.tencent.mm）") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Button(onClick = {
+            val pkg = newDenyPkg.trim()
+            if (pkg.isEmpty()) {
+                denylistMessage = "请输入应用包名"
+            } else if (AppLockManager.addToUserDenylist(context, pkg)) {
+                denylist = AppLockManager.getUserDenylist(context)
+                newDenyPkg = ""
+                denylistMessage = "已加入白名单"
+            } else {
+                denylistMessage = "添加失败（包名为空或属于系统保护名单）"
+            }
+        }) {
+            Text("加入白名单")
+        }
+        if (denylistMessage.isNotEmpty()) {
+            Text(denylistMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (denylist.isNotEmpty()) {
+            denylist.sorted().forEach { pkg ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(pkg, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        AppLockManager.removeFromUserDenylist(context, pkg)
+                        denylist = AppLockManager.getUserDenylist(context)
+                    }) {
+                        Text("移除")
+                    }
+                }
+            }
+        } else {
+            Text("白名单为空", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         HorizontalDivider()
