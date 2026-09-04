@@ -349,7 +349,7 @@ class McpService : Service(), SensorEventListener {
             "Access-Control-Allow-Methods: POST, OPTIONS\r\n" +
             "Access-Control-Allow-Headers: content-type, accept, mcp-protocol-version, authorization, mcp-session-id\r\n" +
             "Access-Control-Allow-Private-Network: true\r\n" +
-            "Vary: Origin"
+            "Vary: Origin\r\n"
 
     private fun writeCorsPreflight(output: java.io.OutputStream, origin: String?) {
         val allowOrigin = if (!origin.isNullOrBlank()) origin else "*"
