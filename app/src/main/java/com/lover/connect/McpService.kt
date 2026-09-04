@@ -252,8 +252,21 @@ class McpService : Service(), SensorEventListener {
             val output = socket.getOutputStream()
 
             val requestLine = LocalHttpWire.readAsciiLine(input, MAX_HTTP_LINE_BYTES) ?: return
+            val browserAccess = McpServiceController.isBrowserAccessEnabled(this)
+
+            // CORS preflight (OPTIONS) is only answered when the user explicitly
+            // enables browser access; otherwise the endpoint stays native-only.
+            if (requestLine.startsWith("OPTIONS", ignoreCase = true)) {
+                if (!browserAccess) {
+                    writeHttpJson(output, "401 Unauthorized", "{\"error\":\"invalid_local_mcp_endpoint\"}")
+                } else {
+                    writeCorsPreflight(output)
+                }
+                return
+            }
+
             if (!McpLocalSecurity.isAuthorizedRequestLine(this, requestLine)) {
-                writeHttpJson(output, "401 Unauthorized", "{\"error\":\"invalid_local_mcp_endpoint\"}")
+                writeHttpJson(output, "401 Unauthorized", "{\"error\":\"invalid_local_mcp_endpoint\"}", browserAccess)
                 return
             }
 
@@ -270,7 +283,7 @@ class McpService : Service(), SensorEventListener {
                 headerLines += 1
                 headerBytes += line.length + 2
                 if (headerLines > MAX_HTTP_HEADER_LINES || headerBytes > MAX_HTTP_HEADER_BYTES) {
-                    writeHttpJson(output, "431 Request Header Fields Too Large", "{\"error\":\"request_headers_too_large\"}")
+                    writeHttpJson(output, "431 Request Header Fields Too Large", "{\"error\":\"request_headers_too_large\"}", browserAccess)
                     return
                 }
                 val separator = line.indexOf(':')
@@ -282,15 +295,16 @@ class McpService : Service(), SensorEventListener {
             }
 
             // Native RikkaHub requests do not send Origin. Reject browser-origin
-            // access even on loopback so a webpage cannot read private context.
-            if (!headers["origin"].isNullOrBlank()) {
-                writeHttpJson(output, "403 Forbidden", "{\"error\":\"browser_origin_not_allowed\"}")
+            // access even on loopback so a webpage cannot read private context,
+            // unless the user has explicitly opted into browser access.
+            if (!browserAccess && !headers["origin"].isNullOrBlank()) {
+                writeHttpJson(output, "403 Forbidden", "{\"error\":\"browser_origin_not_allowed\"}", browserAccess)
                 return
             }
 
             val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
             if (contentLength !in 0..MAX_REQUEST_BODY_BYTES) {
-                writeHttpJson(output, "413 Content Too Large", "{\"error\":\"request_body_too_large\"}")
+                writeHttpJson(output, "413 Content Too Large", "{\"error\":\"request_body_too_large\"}", browserAccess)
                 return
             }
             val body = if (contentLength > 0) {
@@ -302,7 +316,8 @@ class McpService : Service(), SensorEventListener {
 
             val response = handleMcpRequest(body)
             val responseBytes = response.toByteArray(Charsets.UTF_8)
-            val httpResponse = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: ${responseBytes.size}\r\n\r\n"
+            val corsHeaders = if (browserAccess) corsHeaderLines() else ""
+            val httpResponse = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: ${responseBytes.size}\r\n$corsHeaders\r\n"
             output.write(httpResponse.toByteArray(Charsets.UTF_8))
             output.write(responseBytes)
             output.flush()
@@ -313,13 +328,35 @@ class McpService : Service(), SensorEventListener {
         }
     }
 
-    private fun writeHttpJson(output: java.io.OutputStream, status: String, body: String) {
+    private fun writeHttpJson(output: java.io.OutputStream, status: String, body: String, cors: Boolean = false) {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
+        val corsHeaders = if (cors) corsHeaderLines() else ""
         output.write(
-            "HTTP/1.1 $status\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ${bodyBytes.size}\r\n\r\n"
+            "HTTP/1.1 $status\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ${bodyBytes.size}\r\n$corsHeaders\r\n"
                 .toByteArray(Charsets.UTF_8),
         )
         output.write(bodyBytes)
+        output.flush()
+    }
+
+    private fun corsHeaderLines(): String =
+        "Access-Control-Allow-Origin: *\r\n" +
+            "Access-Control-Allow-Methods: POST, OPTIONS\r\n" +
+            "Access-Control-Allow-Headers: content-type, accept, mcp-protocol-version, authorization, mcp-session-id\r\n" +
+            "Access-Control-Allow-Private-Network: true"
+
+    private fun writeCorsPreflight(output: java.io.OutputStream) {
+        output.write(
+            ("HTTP/1.1 204 No Content\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Access-Control-Allow-Methods: POST, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: content-type, accept, mcp-protocol-version, authorization, mcp-session-id\r\n" +
+                "Access-Control-Allow-Private-Network: true\r\n" +
+                "Access-Control-Max-Age: 86400\r\n" +
+                "Content-Length: 0\r\n" +
+                "Connection: close\r\n\r\n")
+                .toByteArray(Charsets.UTF_8),
+        )
         output.flush()
     }
 

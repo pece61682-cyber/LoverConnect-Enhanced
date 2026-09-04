@@ -10,11 +10,19 @@ import androidx.core.content.ContextCompat
 object McpServiceController {
     private const val CONTROL_PREFS = "lc_service_control"
     private const val KEY_ENABLED = "mcp_enabled"
+    private const val KEY_BROWSER_ACCESS = "browser_access_enabled"
     private const val DIAGNOSTICS_PREFS = "lc_diagnostics"
     const val EXTRA_START_TRIGGER = "lc_mcp_start_trigger"
 
     private fun controlPrefs(context: Context) =
         context.applicationContext.getSharedPreferences(CONTROL_PREFS, Context.MODE_PRIVATE)
+
+    fun isBrowserAccessEnabled(context: Context): Boolean =
+        controlPrefs(context).getBoolean(KEY_BROWSER_ACCESS, false)
+
+    fun setBrowserAccessEnabled(context: Context, enabled: Boolean) {
+        controlPrefs(context).edit().putBoolean(KEY_BROWSER_ACCESS, enabled).apply()
+    }
 
     fun hasStoredPreference(context: Context): Boolean =
         controlPrefs(context).contains(KEY_ENABLED)

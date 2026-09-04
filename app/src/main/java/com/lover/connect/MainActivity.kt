@@ -130,6 +130,7 @@ fun MainScreen() {
 
     var memoryMessage by remember { mutableStateOf("") }
     var mcpEnabled by remember { mutableStateOf(McpServiceController.isEnabled(context)) }
+    var browserAccess by remember { mutableStateOf(McpServiceController.isBrowserAccessEnabled(context)) }
     val localMcpEndpoint = remember { McpLocalSecurity.endpoint(context) }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -208,6 +209,26 @@ fun MainScreen() {
         }
         Text(
             text = if (mcpEnabled) "运行意图：已启用（开机或更新后会恢复）" else "运行意图：已停止",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("允许浏览器访问（网页应用直连）", fontSize = 14.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = browserAccess,
+                onCheckedChange = {
+                    browserAccess = it
+                    McpServiceController.setBrowserAccessEnabled(context, it)
+                }
+            )
+        }
+        Text(
+            text = if (browserAccess)
+                "已允许网页应用直连本机 MCP。仍只监听本机、仍需私密 token，请勿把完整地址发给他人。"
+            else
+                "默认只允许原生客户端（如 RikkaHub）访问，最安全。网页应用连不上时打开上面的开关。",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
